@@ -1,0 +1,77 @@
+name: Pytest Coverage
+
+on:
+  push:
+    branches: [ "main" ]
+    paths:
+      - '**.py'
+      - '**.cpp'
+      - '**.cc'
+      - '**.c'
+      - '**.h'
+      - '**.hpp'
+      - '**.hxx'
+      - '**/CMakeLists.txt'
+      - '**.cmake'
+      - 'setup.py'
+      - 'pyproject.toml'
+      - '.github/workflows/pytest_coverage.yml'
+  pull_request:
+    branches: [ "main" ]
+    paths:
+      - '**.py'
+      - '**.cpp'
+      - '**.cc'
+      - '**.c'
+      - '**.h'
+      - '**.hpp'
+      - '**.hxx'
+      - '**/CMakeLists.txt'
+      - '**.cmake'
+      - 'setup.py'
+      - 'pyproject.toml'
+      - '.github/workflows/pytest_coverage.yml'
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v5
+      with:
+        submodules: 'true'
+
+    - name: Set up Python
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.11'
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential cmake ninja-build
+        pip install setuptools wheel setuptools_scm
+
+    - name: Install package (with all optional dependencies and C++ extension)
+      run: |
+        pip uninstall uniq -y 2>/dev/null || true
+        rm -rf build/ dist/ *.egg-info uniq.egg-info
+        pip install ".[all]" --no-cache-dir
+
+    - name: Install test dependencies
+      run: pip install pytest pytest-cov
+
+    - name: Run tests with coverage
+      run: pytest uniq/test/ --cov=uniq --cov-report=term-missing --cov-report=xml -v
+
+    - name: Upload coverage report
+      if: always()
+      uses: actions/upload-artifact@v5
+      with:
+        name: coverage-report
+        path: coverage.xml
+
+    - name: Upload coverage reports to Codecov
+      uses: codecov/codecov-action@v5
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
