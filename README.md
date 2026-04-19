@@ -146,15 +146,17 @@ pip install .
 
 核心依赖（包括 `scipy`）在默认安装中已包含。以下为可选功能依赖：
 
-| 功能 | 安装命令 |
-|------|---------|
-| OriginQ 云平台 | `pip install unified-quantum[originq]` |
-| Quafu 执行后端 | `pip install unified-quantum[quafu]` |
-| Qiskit 执行后端 | `pip install unified-quantum[qiskit]` |
-| 高级模拟 (QuTiP) | `pip install unified-quantum[simulation]` |
-| 可视化 | `pip install unified-quantum[visualization]` |
-| PyTorch 集成 | `pip install unified-quantum[pytorch]` |
-| 安装所有可选依赖 | `pip install unified-quantum[all]` |
+| 功能 | 安装命令 | 说明 |
+|------|---------|------|
+| OriginQ 云平台 | `pip install unified-quantum[originq]` | |
+| Quafu 执行后端 | `pip install unified-quantum[quafu]` | |
+| Qiskit 执行后端 | `pip install unified-quantum[qiskit]` | |
+| 高级模拟 (QuTiP) | `pip install unified-quantum[simulation]` | 安装 `qutip` 和 `qutip-qip`，支持密度矩阵后端 |
+| 可视化 | `pip install unified-quantum[visualization]` | |
+| PyTorch 集成 | `pip install unified-quantum[pytorch]` | |
+| 安装所有可选依赖 | `pip install unified-quantum[all]` | |
+
+> **注意**：本地模拟器（`OriginIR_Simulator` 等）依赖 C++ 扩展。使用 `pip install . --no-cpp` 不会编译 C++ 扩展，此时模拟器不可用。
 
 ---
 
