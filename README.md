@@ -105,7 +105,7 @@ pip install unified-quantum
 如果只想在命令行用 `uniqc` 而不污染全局环境：
 
 ```bash
-# 现代 uv（>= 0.5）用 `add`，老版本用 `install`
+# 安装
 uv tool install unified-quantum
 
 # 带可选依赖
