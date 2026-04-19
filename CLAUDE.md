@@ -18,8 +18,10 @@ UnifiedQuantum is a Python-native quantum programming framework for NISQ devices
 ## Build Commands
 
 ```bash
-# Pure Python install (no C++ dependencies)
-pip install . --no-cpp
+# Pure Python install (no C++ dependencies):
+DISABLE_CPP=1 pip install . --no-build-isolation
+# or using setup.py directly:
+python3 setup.py install --no-cpp
 
 # Full install with C++ simulator
 # Requirements: git submodules, CMake >= 3.26, C++ compiler with C++17 support

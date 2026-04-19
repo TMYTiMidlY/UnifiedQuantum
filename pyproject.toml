@@ -104,7 +104,7 @@ dev = [
 
 [tool.setuptools_scm]
 write_to = "uniqc/_version.py"
-fallback_version = "0.0.0"
+fallback_version = "0.0.0+unknown"
 local_scheme = "no-local-version"
 
 [tool.setuptools.package-data]

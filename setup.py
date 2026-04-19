@@ -14,6 +14,11 @@ import sys
 
 BUILD_WITH_CPP = True
 
+# Check env var first, then command-line args
+if os.environ.get("DISABLE_CPP", "").lower() in ("1", "true", "yes"):
+    BUILD_WITH_CPP = False
+    print("Build without C++ support (via DISABLE_CPP env).")
+
 # see if user passes any args to the setup
 filtered_args = []
 for i, arg in enumerate(sys.argv):

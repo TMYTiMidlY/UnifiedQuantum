@@ -56,15 +56,20 @@ jobs:
         # 如果你的 setup.py 有额外的构建时依赖，也在这里安装
         # python -m pip install -r requirements-build.txt
 
-    # 第四步：执行构建命令创建 wheel 文件
-    # 这会在项目根目录下创建一个 dist/ 目录，并将 .whl 文件放在里面
-    - name: Build wheel
+    # 第四步：生成 stub 文件（需要先安装包）
+    - name: Generate stubs
       run: |
         pip install .
         python stubgen.py
-        python setup.py bdist_wheel
 
-    # 第五步：上传构建产物 (wheel 文件)
+    # 第五步：构建 wheel
+    # 用 pip wheel 而非 python setup.py bdist_wheel，
+    # 这样 setuptools_scm 才能正确将 git tag 版本写入 METADATA
+    - name: Build wheel
+      run: |
+        pip wheel . -w dist/ --no-deps
+
+    # 第六步：上传构建产物 (wheel 文件)
     # 将 dist/ 目录下的所有 .whl 文件作为 artifact 上传
     - name: Upload wheel artifact
       uses: actions/upload-artifact@v5 # 使用官方的 upload-artifact action

@@ -11,3 +11,4 @@ except ImportError as e:
     warnings.warn('uniqc is not install with UniqcCpp.')
 
 from .originir_simulator import OriginIR_Simulator, OriginIR_NoisySimulator
+from .qasm_simulator import QASM_Simulator
