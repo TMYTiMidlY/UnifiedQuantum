@@ -50,18 +50,32 @@ def simulate(
 
 
 def _run_simulation(content: str, backend: str, shots: int) -> dict[str, float]:
-    """Run simulation and return measurement results."""
+    """Run simulation and return measurement results keyed by bitstring."""
+    from uniq.originir import OriginIR_BaseParser
     from uniq.simulator import OriginIR_Simulator
+
+    parser = OriginIR_BaseParser()
+    parser.parse(content)
+    n_qubits = max(int(parser.n_qubit), 1)
+
+    def _fmt(state: int) -> str:
+        return format(int(state), f"0{n_qubits}b")
 
     sim = OriginIR_Simulator(backend_type=backend)
     if backend == "statevector":
+        # simulate_pmeasure returns a 1-D array/list of length 2^n indexed
+        # by computational basis state.
         probs = sim.simulate_pmeasure(content)
-        results = {state: prob for state, prob in probs.items() if prob > 1e-10}
-    else:
-        counts = sim.simulate_shots(content, shots=shots)
-        total = sum(counts.values())
-        results = {state: count / total for state, count in counts.items()}
-    return results
+        return {
+            _fmt(i): float(p)
+            for i, p in enumerate(probs)
+            if float(p) > 1e-10
+        }
+
+    # density matrix backend
+    counts = sim.simulate_shots(content, shots=shots)
+    total = sum(counts.values()) or 1
+    return {_fmt(state): count / total for state, count in counts.items()}
 
 
 def _print_results_table(results: dict[str, float], shots: int) -> None:

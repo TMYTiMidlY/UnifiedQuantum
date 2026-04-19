@@ -98,6 +98,6 @@ def _print_info(content: str, fmt: str) -> None:
             ["Qubits", str(circuit.qubit_num)],
             ["Cbits", str(circuit.cbit_num)],
             ["Depth", str(circuit.depth)],
-            ["Gates", str(len(circuit.opcodes))],
+            ["Gates", str(len(circuit.opcode_list))],
         ],
     )

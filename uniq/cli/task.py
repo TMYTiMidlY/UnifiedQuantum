@@ -6,7 +6,15 @@ from typing import Optional
 
 import typer
 
-from .output import console, format_prob, print_error, print_json, print_success, print_table
+from .output import (
+    console,
+    format_prob,
+    print_error,
+    print_info,
+    print_json,
+    print_success,
+    print_table,
+)
 
 app = typer.Typer(help="Manage submitted tasks")
 
@@ -95,7 +103,7 @@ def clear(
     force: bool = typer.Option(False, "--force", help="Force clear without confirmation"),
 ):
     """Clear completed or failed tasks from cache."""
-    from uniq.task_manager import clear_completed_tasks, clear_cache
+    from uniq.task_manager import clear_completed_tasks, clear_cache, list_tasks
 
     if status:
         count = clear_completed_tasks()
@@ -105,7 +113,8 @@ def clear(
             if not confirm:
                 print_info("Cancelled")
                 return
-        count = clear_cache()
+        count = len(list_tasks())
+        clear_cache()
 
     print_success(f"Cleared {count} tasks from cache")
 

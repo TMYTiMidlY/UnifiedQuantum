@@ -2,13 +2,12 @@
 
 This module tests:
 - TaskInfo dataclass
-- Cache management functions
+- Cache management functions (SQLite-backed)
 - Error mapping
 - Task submission/query/wait
 - TaskManager class
 """
 
-import json
 import tempfile
 import time
 from datetime import datetime
@@ -22,9 +21,6 @@ from uniq.task_manager import (
     TaskInfo,
     TaskStatus,
     TaskManager,
-    _get_cache_file,
-    _load_tasks_cache,
-    _save_tasks_cache,
     _map_adapter_error,
     _get_adapter,
     save_task,
@@ -128,64 +124,16 @@ class TestTaskInfo:
 # =============================================================================
 
 class TestCacheManagement:
-    """Tests for cache management functions."""
-
-    def test_get_cache_file_default(self):
-        """Test _get_cache_file with default directory."""
-        with patch("uniq.task_manager.DEFAULT_CACHE_DIR", Path("/tmp/test_cache")):
-            cache_file = _get_cache_file()
-            assert cache_file.name == "tasks.json"
-
-    def test_get_cache_file_custom(self, temp_cache_dir: Path):
-        """Test _get_cache_file with custom directory."""
-        cache_file = _get_cache_file(temp_cache_dir)
-        assert cache_file == temp_cache_dir / "tasks.json"
-
-    def test_load_tasks_cache_empty(self, temp_cache_dir: Path):
-        """Test loading from non-existent cache."""
-        tasks = _load_tasks_cache(temp_cache_dir)
-        assert tasks == {}
-
-    def test_load_tasks_cache_with_data(self, temp_cache_dir: Path):
-        """Test loading from cache with data."""
-        cache_file = _get_cache_file(temp_cache_dir)
-        test_data = {
-            "task-1": {"task_id": "task-1", "backend": "quafu", "status": "success"}
-        }
-        cache_file.write_text(json.dumps(test_data))
-
-        tasks = _load_tasks_cache(temp_cache_dir)
-        assert "task-1" in tasks
-        assert tasks["task-1"]["backend"] == "quafu"
-
-    def test_load_tasks_cache_corrupted(self, temp_cache_dir: Path):
-        """Test loading from corrupted cache file."""
-        cache_file = _get_cache_file(temp_cache_dir)
-        cache_file.write_text("not valid json {")
-
-        with pytest.warns(UserWarning):
-            tasks = _load_tasks_cache(temp_cache_dir)
-        assert tasks == {}
-
-    def test_save_tasks_cache(self, temp_cache_dir: Path):
-        """Test saving to cache."""
-        tasks = {
-            "task-1": {"task_id": "task-1", "backend": "quafu", "status": "running"}
-        }
-        _save_tasks_cache(tasks, temp_cache_dir)
-
-        cache_file = _get_cache_file(temp_cache_dir)
-        assert cache_file.exists()
-
-        loaded = json.loads(cache_file.read_text())
-        assert loaded == tasks
+    """Tests for cache management functions (SQLite-backed)."""
 
     def test_save_task(self, sample_task_info: TaskInfo, temp_cache_dir: Path):
         """Test save_task function."""
         save_task(sample_task_info, temp_cache_dir)
 
-        loaded = _load_tasks_cache(temp_cache_dir)
-        assert "test-task-123" in loaded
+        loaded = get_task("test-task-123", temp_cache_dir)
+        assert loaded is not None
+        assert loaded.task_id == "test-task-123"
+        assert loaded.backend == "quafu"
 
     def test_get_task_found(self, sample_task_info: TaskInfo, temp_cache_dir: Path):
         """Test get_task when task exists."""
@@ -254,8 +202,7 @@ class TestCacheManagement:
 
         clear_cache(temp_cache_dir)
 
-        cache_file = _get_cache_file(temp_cache_dir)
-        assert not cache_file.exists()
+        assert list_tasks(cache_dir=temp_cache_dir) == []
 
 
 # =============================================================================

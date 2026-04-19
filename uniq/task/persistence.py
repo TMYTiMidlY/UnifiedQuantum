@@ -1,21 +1,14 @@
-"""Task persistence using JSONL format.
+"""Task persistence (legacy dict-based API) backed by the SQLite TaskStore.
 
-This module provides persistent storage for quantum task metadata and results.
-Tasks are stored in JSONL (JSON Lines) format where each line is a complete
-JSON object representing one task record.
-
-Storage location: ~/.uniq/tasks/tasks.jsonl
-
-The JSONL format provides:
-- Simple append-only writes for new tasks
-- Line-by-line reading for efficient lookups
-- Human-readable format for debugging
-- No external database dependencies
+Historically this module offered a JSONL-based ``TaskPersistence`` class.
+All storage has been unified onto :class:`uniq.task.store.TaskStore`
+(SQLite); this module now provides a thin compatibility layer that keeps
+the same flat-dict interface (``platform``/``status``/``result`` + extra
+keyword metadata).
 
 Usage:
     from uniq.task.persistence import TaskPersistence
 
-    # Create persistence manager
     persistence = TaskPersistence()
 
     # Save a task
@@ -24,7 +17,7 @@ Usage:
         platform="originq",
         status="success",
         result={"counts": {"00": 512, "11": 488}},
-        shots=1000
+        shots=1000,
     )
 
     # Load a task
@@ -38,25 +31,38 @@ from __future__ import annotations
 
 __all__ = ["TaskPersistence", "DEFAULT_CACHE_DIR"]
 
-import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, List, Optional
 
-# Default storage directory
-DEFAULT_CACHE_DIR = Path.home() / ".uniq" / "tasks"
+from uniq.task.store import (
+    DEFAULT_CACHE_DIR as _STORE_DEFAULT_CACHE_DIR,
+    TERMINAL_STATUSES,
+    TaskInfo,
+    TaskStore,
+)
+
+# Back-compat re-export so callers that imported this symbol keep working.
+DEFAULT_CACHE_DIR: Path = _STORE_DEFAULT_CACHE_DIR
+
+
+# Reserved metadata keys that map onto first-class TaskInfo fields. Any
+# other keyword ends up in TaskInfo.metadata and flattened back on read.
+_RESERVED_KWARGS = {"shots", "submit_time", "update_time"}
 
 
 class TaskPersistence:
-    """JSONL-based task storage manager.
+    """Dict-shaped task store backed by SQLite.
 
-    Manages persistent storage of quantum task records in JSONL format.
-    Each record is a JSON object on a single line, enabling efficient
-    append operations and line-by-line reading.
+    The dict schema exposed to callers uses ``platform`` as the field name
+    for the backend (kept for backward compatibility with pre-unification
+    callers). Internally, records are stored in the shared SQLite database
+    managed by :class:`TaskStore`.
 
     Attributes:
-        cache_dir: Directory containing the tasks.jsonl file.
-        tasks_file: Path to the tasks.jsonl file.
+        cache_dir: Directory containing ``tasks.sqlite``.
+        tasks_file: Path to the SQLite database (legacy name preserved for
+            callers that introspect the storage file).
 
     Example:
         >>> persistence = TaskPersistence()
@@ -67,15 +73,46 @@ class TaskPersistence:
     """
 
     def __init__(self, cache_dir: Optional[Path] = None) -> None:
-        """Initialize the persistence manager.
+        self._store = TaskStore(cache_dir)
+        self.cache_dir: Path = self._store.cache_dir
+        # Legacy attribute: historically referenced the JSONL file;
+        # now points at the unified SQLite database.
+        self.tasks_file: Path = self._store.db_path
 
-        Args:
-            cache_dir: Optional custom cache directory. Defaults to
-                ~/.uniq/tasks/
-        """
-        self.cache_dir = cache_dir or DEFAULT_CACHE_DIR
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.tasks_file = self.cache_dir / "tasks.jsonl"
+    # -- helpers ------------------------------------------------------------
+
+    @staticmethod
+    def _split_kwargs(metadata: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+        """Split caller kwargs into (reserved, extra)."""
+        reserved: Dict[str, Any] = {}
+        extra: Dict[str, Any] = {}
+        for key, value in metadata.items():
+            if key in _RESERVED_KWARGS:
+                reserved[key] = value
+            else:
+                extra[key] = value
+        return reserved, extra
+
+    @staticmethod
+    def _info_to_record(info: TaskInfo) -> Dict[str, Any]:
+        """Render a TaskInfo as the legacy flat-dict record."""
+        record: Dict[str, Any] = {
+            "task_id": info.task_id,
+            "platform": info.backend,
+            "status": info.status,
+            "result": info.result,
+            "submit_time": info.submit_time,
+            "update_time": info.update_time,
+        }
+        if info.shots:
+            record["shots"] = info.shots
+        # Flatten free-form metadata back into the top level for the
+        # historical record shape. Reserved keys take precedence.
+        for key, value in (info.metadata or {}).items():
+            record.setdefault(key, value)
+        return record
+
+    # -- write --------------------------------------------------------------
 
     def save(
         self,
@@ -85,101 +122,62 @@ class TaskPersistence:
         result: Optional[Dict[str, Any]] = None,
         **metadata: Any,
     ) -> None:
-        """Save a new task record.
-
-        Creates a new record with the provided information and appends it
-        to the tasks.jsonl file. The timestamp is automatically set.
+        """Save (upsert) a task record.
 
         Args:
             task_id: Unique task identifier.
-            platform: Platform name ('originq', 'quafu', 'ibm', 'dummy').
+            platform: Platform / backend name.
             status: Task status ('pending', 'running', 'success', 'failed').
-            result: Optional result dict (counts, probabilities, etc.).
-            **metadata: Additional metadata fields to store.
-
-        Example:
-            >>> persistence.save(
-            ...     "task-123",
-            ...     "originq",
-            ...     "success",
-            ...     result={"counts": {"00": 512}},
-            ...     shots=1000
-            ... )
+            result: Optional result dict.
+            **metadata: Extra fields. ``shots``, ``submit_time``,
+                ``update_time`` are recognised and promoted onto TaskInfo;
+                anything else is stored in ``TaskInfo.metadata``.
         """
-        timestamp = datetime.now().isoformat()
-        record: Dict[str, Any] = {
-            "task_id": task_id,
-            "platform": platform,
-            "status": status,
-            "submit_time": timestamp,
-            "update_time": timestamp,
-            "result": result,
-            **metadata,
-        }
-
-        with open(self.tasks_file, "a", encoding="utf-8") as f:
-            f.write(json.dumps(record, ensure_ascii=False) + "\n")
-
-    def load(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """Load a task record by ID.
-
-        Searches through all records to find the one with matching task_id.
-        Returns the most recent record if there are duplicates.
-
-        Args:
-            task_id: The task identifier to look up.
-
-        Returns:
-            The task record dict, or None if not found.
-
-        Example:
-            >>> record = persistence.load("task-123")
-            >>> if record:
-            ...     print(record['status'])
-        """
-        if not self.tasks_file.exists():
-            return None
-
-        # Search from end to get most recent entry
-        records = list(self._iter_records())
-        for record in reversed(records):
-            if record.get("task_id") == task_id:
-                return record
-        return None
+        reserved, extra = self._split_kwargs(metadata)
+        now = datetime.now().isoformat()
+        info = TaskInfo(
+            task_id=task_id,
+            backend=platform,
+            status=status,
+            result=result,
+            shots=int(reserved.get("shots", 0)),
+            submit_time=reserved.get("submit_time", now),
+            update_time=reserved.get("update_time", now),
+            metadata=extra,
+        )
+        self._store.save(info)
 
     def update(self, task_id: str, **updates: Any) -> bool:
-        """Update an existing task record.
+        """Update an existing record. ``update_time`` is refreshed.
 
-        Reads all records, updates the matching one, and rewrites the file.
-        The update_time is automatically set.
-
-        Args:
-            task_id: The task identifier to update.
-            **updates: Fields to update in the record.
-
-        Returns:
-            True if the task was found and updated, False otherwise.
-
-        Example:
-            >>> success = persistence.update("task-123", status="success",
-            ...                               result={"counts": {"00": 512}})
+        Returns ``True`` if the record existed and was updated.
         """
-        if not self.tasks_file.exists():
+        existing = self._store.get(task_id)
+        if existing is None:
             return False
 
-        records = list(self._iter_records())
-        found = False
+        reserved, extra = self._split_kwargs(updates)
 
-        for record in records:
-            if record.get("task_id") == task_id:
-                record.update(updates)
-                record["update_time"] = datetime.now().isoformat()
-                found = True
-                break
+        if "platform" in extra:
+            existing.backend = extra.pop("platform")
+        if "status" in extra:
+            existing.status = extra.pop("status")
+        if "result" in extra:
+            existing.result = extra.pop("result")
 
-        if found:
-            self._write_all(records)
-        return found
+        if "shots" in reserved:
+            existing.shots = int(reserved["shots"])
+        if "submit_time" in reserved:
+            existing.submit_time = reserved["submit_time"]
+        # update_time is always refreshed by TaskStore.save()
+
+        if extra:
+            merged_metadata = dict(existing.metadata or {})
+            merged_metadata.update(extra)
+            existing.metadata = merged_metadata
+
+        self._store.save(existing)
+        return True
 
     def upsert(
         self,
@@ -189,23 +187,18 @@ class TaskPersistence:
         result: Optional[Dict[str, Any]] = None,
         **metadata: Any,
     ) -> None:
-        """Update existing record or insert new one.
-
-        Convenience method that checks if a record exists and either
-        updates it or creates a new one.
-
-        Args:
-            task_id: Unique task identifier.
-            platform: Platform name.
-            status: Task status.
-            result: Optional result dict.
-            **metadata: Additional metadata.
-        """
-        existing = self.load(task_id)
-        if existing:
+        """Update if present, otherwise insert."""
+        if self._store.get(task_id) is not None:
             self.update(task_id, status=status, result=result, **metadata)
         else:
             self.save(task_id, platform, status, result=result, **metadata)
+
+    # -- read ---------------------------------------------------------------
+
+    def load(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Load a record by task id."""
+        info = self._store.get(task_id)
+        return self._info_to_record(info) if info is not None else None
 
     def list_all(
         self,
@@ -213,143 +206,39 @@ class TaskPersistence:
         status: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        """List all tasks with optional filtering.
+        """List records, newest first.
 
         Args:
-            platform: Filter by platform name.
-            status: Filter by task status.
-            limit: Maximum number of records to return.
-
-        Returns:
-            List of task records, most recent first.
-
-        Example:
-            >>> # Get all successful OriginQ tasks
-            >>> tasks = persistence.list_all(platform="originq", status="success")
+            platform: Filter by platform / backend name.
+            status: Filter by status.
+            limit: Max number of records.
         """
-        results = []
-        for record in self._iter_records():
-            if platform and record.get("platform") != platform:
-                continue
-            if status and record.get("status") != status:
-                continue
-            results.append(record)
-
-        # Return most recent first
-        results.reverse()
-
-        if limit:
-            results = results[:limit]
-        return results
+        infos = self._store.list(status=status, backend=platform, limit=limit)
+        return [self._info_to_record(i) for i in infos]
 
     def list_by_platform(self, platform: str) -> List[Dict[str, Any]]:
-        """List all tasks for a specific platform.
-
-        Args:
-            platform: Platform name to filter by.
-
-        Returns:
-            List of task records for the platform.
-        """
+        """All records for a given platform."""
         return self.list_all(platform=platform)
 
     def list_pending(self) -> List[Dict[str, Any]]:
-        """List all pending or running tasks.
+        """Records currently in-flight ('pending' or 'running')."""
+        records: List[Dict[str, Any]] = []
+        for status in ("pending", "running"):
+            records.extend(self.list_all(status=status))
+        return records
 
-        Returns:
-            List of tasks with status 'pending' or 'running'.
-        """
-        results = []
-        for record in self._iter_records():
-            if record.get("status") in ("pending", "running"):
-                results.append(record)
-        return results
+    def count(
+        self, platform: Optional[str] = None, status: Optional[str] = None
+    ) -> int:
+        """Count records with optional filters."""
+        return self._store.count(status=status, backend=platform)
+
+    # -- delete -------------------------------------------------------------
 
     def clear_completed(self) -> int:
-        """Remove all completed tasks from storage.
-
-        Removes tasks with status 'success', 'failed', or 'cancelled'.
-
-        Returns:
-            Number of tasks removed.
-
-        Example:
-            >>> removed = persistence.clear_completed()
-            >>> print(f"Removed {removed} completed tasks")
-        """
-        if not self.tasks_file.exists():
-            return 0
-
-        kept = []
-        removed = 0
-        terminal_states = ("success", "failed", "cancelled")
-
-        for record in self._iter_records():
-            if record.get("status") in terminal_states:
-                removed += 1
-            else:
-                kept.append(record)
-
-        self._write_all(kept)
-        return removed
+        """Remove records whose status is terminal. Returns count removed."""
+        return self._store.clear_completed(TERMINAL_STATUSES)
 
     def delete(self, task_id: str) -> bool:
-        """Delete a specific task record.
-
-        Args:
-            task_id: The task identifier to delete.
-
-        Returns:
-            True if the task was found and deleted, False otherwise.
-        """
-        if not self.tasks_file.exists():
-            return False
-
-        records = list(self._iter_records())
-        original_len = len(records)
-        records = [r for r in records if r.get("task_id") != task_id]
-
-        if len(records) < original_len:
-            self._write_all(records)
-            return True
-        return False
-
-    def count(self, platform: Optional[str] = None, status: Optional[str] = None) -> int:
-        """Count tasks with optional filtering.
-
-        Args:
-            platform: Filter by platform name.
-            status: Filter by task status.
-
-        Returns:
-            Number of matching tasks.
-        """
-        return len(self.list_all(platform=platform, status=status))
-
-    def _iter_records(self) -> Iterator[Dict[str, Any]]:
-        """Iterate over all records in the storage file.
-
-        Yields:
-            Each record as a dict.
-        """
-        if not self.tasks_file.exists():
-            return
-
-        with open(self.tasks_file, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        yield json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-    def _write_all(self, records: List[Dict[str, Any]]) -> None:
-        """Write all records to the storage file.
-
-        Args:
-            records: List of records to write.
-        """
-        with open(self.tasks_file, "w", encoding="utf-8") as f:
-            for record in records:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        """Delete a record by id. Returns ``True`` if it existed."""
+        return self._store.delete(task_id)

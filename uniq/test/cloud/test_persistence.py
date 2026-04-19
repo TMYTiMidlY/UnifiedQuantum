@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 import tempfile
@@ -194,23 +193,6 @@ class TestTaskPersistence:
         assert total == 3
         assert originq == 2
         assert success_count == 2
-
-    def test_jsonl_format(self, persistence):
-        """Test that storage uses valid JSONL format."""
-        persistence.save("task-1", "originq", "success")
-        persistence.save("task-2", "quafu", "success")
-
-        # Read raw file
-        with open(persistence.tasks_file) as f:
-            lines = f.readlines()
-
-        assert len(lines) == 2
-
-        # Each line should be valid JSON
-        for line in lines:
-            record = json.loads(line)
-            assert "task_id" in record
-            assert "platform" in record
 
     def test_timestamps_set(self, persistence):
         """Test that timestamps are automatically set."""

@@ -57,22 +57,28 @@ def submit(
         _wait_and_show(task_id, platform, timeout, format)
 
 
+def _parse_to_circuit(circuit_text: str):
+    """Parse OriginIR or OpenQASM 2.0 text into a ``Circuit`` object."""
+    from uniq.originir import OriginIR_BaseParser
+
+    parser = OriginIR_BaseParser()
+    try:
+        parser.parse(circuit_text)
+        return parser.to_circuit()
+    except Exception:
+        # Fall back to QASM
+        from uniq.qasm import OpenQASM2_BaseParser
+
+        qasm_parser = OpenQASM2_BaseParser()
+        qasm_parser.parse(circuit_text)
+        return qasm_parser.to_circuit()
+
+
 def _submit_single(circuit: str, platform: str, backend_name: str | None, shots: int, name: str | None) -> str:
     """Submit a single circuit using the unified task_manager API."""
     from uniq.task_manager import submit_task
-    from uniq.circuit_builder import Circuit
-    from uniq.originir import OriginIR_BaseParser
 
-    # Parse the circuit string to a Circuit object
-    # Support both OriginIR and OpenQASM formats
-    parser = OriginIR_BaseParser()
-    try:
-        parsed_circuit = parser.parse(circuit)
-    except Exception:
-        # If OriginIR parsing fails, try QASM
-        from uniq.qasm import OpenQASM2_BaseParser
-        qasm_parser = OpenQASM2_BaseParser()
-        parsed_circuit = qasm_parser.parse(circuit)
+    parsed_circuit = _parse_to_circuit(circuit)
 
     # Build kwargs for backend-specific options
     kwargs: dict = {"shots": shots}
@@ -91,23 +97,13 @@ def _submit_single(circuit: str, platform: str, backend_name: str | None, shots:
 def _submit_batch(circuits: list[str], platform: str, backend_name: str | None, shots: int, name: str | None) -> list[str]:
     """Submit multiple circuits using the unified task_manager API."""
     from uniq.task_manager import submit_batch
-    from uniq.circuit_builder import Circuit
-    from uniq.originir import OriginIR_BaseParser
+
     from .output import print_warning
 
     if name:
         print_warning("Task name is not supported for batch submissions yet. Ignoring --name option.")
 
-    # Parse all circuits
-    parser = OriginIR_BaseParser()
-    parsed_circuits = []
-    for circuit in circuits:
-        try:
-            parsed_circuits.append(parser.parse(circuit))
-        except Exception:
-            from uniq.qasm import OpenQASM2_BaseParser
-            qasm_parser = OpenQASM2_BaseParser()
-            parsed_circuits.append(qasm_parser.parse(circuit))
+    parsed_circuits = [_parse_to_circuit(c) for c in circuits]
 
     # Build kwargs for backend-specific options
     kwargs: dict = {"shots": shots}
