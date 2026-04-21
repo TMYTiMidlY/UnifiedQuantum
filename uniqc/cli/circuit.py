@@ -9,7 +9,7 @@ import typer
 
 from .output import console, print_error, print_info, print_table, write_output
 
-app = typer.Typer(help="Circuit format conversion (OriginIR <-> QASM)")
+HELP = "Circuit format conversion (OriginIR <-> QASM)"
 
 
 def _detect_format(content: str) -> str:
@@ -22,7 +22,6 @@ def _detect_format(content: str) -> str:
     return "unknown"
 
 
-@app.callback(invoke_without_command=True)
 def convert(
     input_file: Path = typer.Argument(..., help="Input circuit file (OriginIR or QASM)", exists=True),
     format: Optional[str] = typer.Option(None, "--format", "-f", help="Output format: originir/qasm"),

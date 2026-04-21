@@ -8,10 +8,9 @@ import typer
 
 from .output import format_prob, print_error, print_json, print_table
 
-app = typer.Typer(help="Query task results from quantum cloud platforms")
+HELP = "Query task results from quantum cloud platforms"
 
 
-@app.callback(invoke_without_command=True)
 def result(
     task_id: str = typer.Argument(..., help="Task ID to query"),
     platform: Optional[str] = typer.Option(None, "--platform", "-p", help="Platform: originq/quafu/ibm"),

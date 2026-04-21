@@ -9,10 +9,9 @@ import typer
 
 from .output import console, print_error, print_json, print_success, print_table
 
-app = typer.Typer(help="Submit circuits to quantum cloud platforms")
+HELP = "Submit circuits to quantum cloud platforms"
 
 
-@app.callback(invoke_without_command=True)
 def submit(
     input_files: list[Path] = typer.Argument(..., help="Circuit file(s) to submit", exists=True),
     platform: str = typer.Option(..., "--platform", "-p", help="Platform: originq/quafu/ibm/dummy"),

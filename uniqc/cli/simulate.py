@@ -9,10 +9,9 @@ import typer
 
 from .output import console, format_prob, print_error, print_json, print_table, write_output
 
-app = typer.Typer(help="Local circuit simulation")
+HELP = "Local circuit simulation"
 
 
-@app.callback(invoke_without_command=True)
 def simulate(
     input_file: Path = typer.Argument(..., help="Circuit file (OriginIR or QASM)", exists=True),
     backend: str = typer.Option("statevector", "--backend", "-b", help="Backend type: statevector/density"),

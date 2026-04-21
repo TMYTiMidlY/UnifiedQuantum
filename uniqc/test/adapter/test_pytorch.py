@@ -9,6 +9,7 @@ This module tests:
 """
 
 import sys
+import types
 from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
@@ -63,6 +64,20 @@ class TestPytorchImports:
         assert callable(compute_all_gradients)
         assert callable(batch_execute)
         assert QuantumLayer is not None
+
+    def test_import_simulator_without_torchquantum_when_torch_exists(self):
+        """TorchQuantum simulator import should stay optional even if torch exists."""
+        import importlib
+
+        fake_torch = types.ModuleType("torch")
+        fake_torch.Tensor = object
+
+        with patch.dict(sys.modules, {"torch": fake_torch}, clear=False):
+            sys.modules.pop("uniqc.simulator", None)
+            sys.modules.pop("uniqc.simulator.torchquantum_simulator", None)
+
+            simulator = importlib.import_module("uniqc.simulator")
+            assert simulator.TORCHQUANTUM_AVAILABLE is False
 
 
 # =============================================================================
