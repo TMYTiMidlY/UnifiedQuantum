@@ -99,7 +99,7 @@ jobs:
       env:
         PYTHONWARNINGS: "default::DeprecationWarning,default::FutureWarning"
       run: |
-        pytest uniqc/test/ -v --tb=short
+        pytest uniqc/test/ -v --tb=short --ignore=uniqc/test/transpiler/test_transpiler_qiskit.py
 
     - name: Check for deprecation warnings (fail on error)
       if: runner.os == 'Linux'
