@@ -23,6 +23,13 @@ sys.path.insert(0, os.path.abspath(parent_path))
 
 import subprocess
 import os
+from sphinx.util import logging as sphinx_logging
+
+logger = sphinx_logging.getLogger(__name__)
+
+
+def write_release_notes_placeholder(output_path, message):
+    output_path.write_text(message, encoding="utf-8")
 
 def generate_release_notes():
     """Generate git-backed release notes used by the docs site."""
@@ -32,9 +39,9 @@ def generate_release_notes():
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if not script_path.exists():
-        output_path.write_text(
+        write_release_notes_placeholder(
+            output_path,
             "## 详细变更记录（自动整理）\n\n自动整理脚本缺失，当前无法生成版本变化记录。\n",
-            encoding="utf-8",
         )
         return
 
@@ -46,13 +53,25 @@ def generate_release_notes():
             capture_output=True,
             text=True,
         )
-    except Exception as exc:
-        output_path.write_text(
+    except subprocess.CalledProcessError as exc:
+        write_release_notes_placeholder(
+            output_path,
             "## 详细变更记录（自动整理）\n\n"
             "版本变化记录整理失败，因此这里只显示占位说明。请检查 `scripts/generate_release_notes.py`。\n",
-            encoding="utf-8",
         )
-        print(f"[docs] failed to generate release notes: {exc}")
+        logger.warning(
+            "Failed to generate release notes: %s\nstdout:\n%s\nstderr:\n%s",
+            exc,
+            (exc.stdout or "").strip() or "<empty>",
+            (exc.stderr or "").strip() or "<empty>",
+        )
+    except Exception as exc:
+        write_release_notes_placeholder(
+            output_path,
+            "## 详细变更记录（自动整理）\n\n"
+            "版本变化记录整理失败，因此这里只显示占位说明。请检查 `scripts/generate_release_notes.py`。\n",
+        )
+        logger.warning("Failed to generate release notes: %s", exc)
 
 def get_version_from_setuptools_scm(strip_dev=False):
     """Get version from setuptools_scm.

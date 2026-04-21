@@ -66,8 +66,27 @@ def get_tags(repo_root: Path) -> list[TagInfo]:
     return tags
 
 
-def get_tag_detail(repo_root: Path, tag_name: str) -> str | None:
-    body = run_git(repo_root, "log", "-1", "--format=%B", tag_name)
+def get_ref_object_type(repo_root: Path, ref_name: str) -> str:
+    return run_git(repo_root, "cat-file", "-t", ref_name)
+
+
+def get_annotated_tag_body(repo_root: Path, tag_name: str) -> str | None:
+    tag_object = run_git(repo_root, "cat-file", "-p", tag_name)
+    header, _, body = tag_object.partition("\n\n")
+    if not body:
+        return None
+    return body.strip() or None
+
+
+def get_commit_body(repo_root: Path, revision: str) -> str | None:
+    body = run_git(repo_root, "log", "-1", "--format=%B", revision)
+    return body.strip() or None
+
+
+def extract_detail_paragraph(body: str | None) -> str | None:
+    if not body:
+        return None
+
     raw_lines = [line.strip() for line in body.splitlines()]
     if not raw_lines:
         return None
@@ -89,6 +108,13 @@ def get_tag_detail(repo_root: Path, tag_name: str) -> str | None:
     if paragraph:
         return " ".join(paragraph)
     return None
+
+
+def get_tag_detail(repo_root: Path, tag_name: str) -> str | None:
+    object_type = get_ref_object_type(repo_root, tag_name)
+    if object_type == "tag":
+        return extract_detail_paragraph(get_annotated_tag_body(repo_root, tag_name))
+    return extract_detail_paragraph(get_commit_body(repo_root, tag_name))
 
 
 def get_commit_subjects(repo_root: Path, revision_range: str) -> list[CommitInfo]:
